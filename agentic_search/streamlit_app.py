@@ -289,8 +289,8 @@ def main() -> None:
         layout="wide",
     )
 
-    st.title("CAS_CIIR_Challenge2026")
-    st.write("Customizable Agent Search with configurable providers, model selection, and source-backed entity extraction.")
+    st.title("Customizable Agentic Search")
+    st.write("Customizable Agentic Search with configurable providers, model selection, and source-backed entity extraction.")
 
     settings, debug_mode, log_file = _build_runtime_settings()
 
