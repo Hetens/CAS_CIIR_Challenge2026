@@ -86,7 +86,7 @@ def _build_runtime_settings() -> tuple[Settings, bool, str]:
 
     with st.sidebar:
         st.subheader("Runtime Config")
-        st.caption("`duckduckgo` is the safest choice when you want to preserve paid search quota.")
+        st.caption("Use `duckduckgo` when you want to preserve paid search quota.")
 
         llm_provider = st.selectbox(
             "LLM provider",
@@ -123,7 +123,7 @@ def _build_runtime_settings() -> tuple[Settings, bool, str]:
         ollama_model = base.ollama_model
 
         if llm_provider == "auto":
-            st.caption("Auto resolution order: Gemini, then OpenAI, then Ollama.")
+            st.caption("Auto order: Gemini, then OpenAI, then Ollama.")
             gemini_model = _model_selectbox(
                 "Auto Gemini model",
                 GEMINI_MODEL_OPTIONS,
@@ -190,6 +190,33 @@ def _build_runtime_settings() -> tuple[Settings, bool, str]:
     return settings, debug_mode, log_file
 
 
+def _summarize_attributes(attributes: dict[str, dict[str, Any]]) -> str:
+    if not attributes:
+        return ""
+    parts = []
+    for key, value in attributes.items():
+        text = str(value.get("value", "")).strip()
+        if text:
+            parts.append(f"{key}: {text}")
+    return " | ".join(parts)
+
+
+def _table_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in payload.get("results", []):
+        rows.append(
+            {
+                "Name": row["entity_name"]["value"],
+                "Type": row["entity_type"]["value"],
+                "Description": row["description"]["value"],
+                "Attributes": _summarize_attributes(row.get("attributes", {})),
+                "Confidence": f"{float(row.get('confidence', 0.0)):.2f}",
+                "Sources": len(row.get("sources", [])),
+            }
+        )
+    return rows
+
+
 def _render_cell(label: str, cell: dict[str, Any]) -> None:
     st.markdown(f"**{label}:** {cell.get('value', '')}")
     evidence = str(cell.get("evidence", "")).strip()
@@ -211,48 +238,27 @@ def _render_results(payload: dict[str, Any]) -> None:
     st.caption(
         f"{len(rows)} entities found from {len(payload.get('searched_urls', []))} pages."
     )
-    for row in rows:
-        with st.container(border=True):
-            left, right = st.columns([1.3, 1])
-            with left:
-                _render_cell("Name", row["entity_name"])
-                _render_cell("Description", row["description"])
-            with right:
-                _render_cell("Type", row["entity_type"])
-                attributes = row.get("attributes", {})
-                if attributes:
-                    st.markdown("**Attributes**")
-                    for key, value in attributes.items():
-                        _render_cell(key, value)
-                st.metric("Confidence", f"{float(row.get('confidence', 0.0)):.2f}")
-
-
-def _render_metrics(payload: dict[str, Any]) -> None:
-    metrics = payload.get("metrics")
-    if not metrics:
-        return
-    st.subheader("Performance")
-    row1 = st.columns(4)
-    row1[0].metric("Total Latency", f"{metrics.get('total_latency_ms', 0):.2f} ms")
-    row1[1].metric("Search Latency", f"{metrics.get('search_latency_ms', 0):.2f} ms")
-    row1[2].metric("Fetch Latency", f"{metrics.get('fetch_latency_ms', 0):.2f} ms")
-    row1[3].metric("LLM Latency", f"{metrics.get('extract_latency_ms', 0):.2f} ms")
-
-    row2 = st.columns(4)
-    row2[0].metric("Fetch Throughput", f"{metrics.get('pages_per_second', 0):.2f} pages/s")
-    row2[1].metric("Entity Throughput", f"{metrics.get('entities_per_second', 0):.2f} entities/s")
-    row2[2].metric("Fetched Documents", str(metrics.get("fetched_documents_count", 0)))
-    row2[3].metric("Final Entities", str(metrics.get("final_entities_count", 0)))
-
-    row3 = st.columns(4)
-    row3[0].metric("LLM Prompt Tokens", str(metrics.get("llm_prompt_tokens", 0)))
-    row3[1].metric("LLM Output Tokens", str(metrics.get("llm_output_tokens", 0)))
-    row3[2].metric("LLM Total Tokens", str(metrics.get("llm_total_tokens", 0)))
-    tokens_per_second = metrics.get("llm_tokens_per_second")
-    row3[3].metric(
-        "LLM Tokens / Sec",
-        "N/A" if tokens_per_second in (None, "") else f"{float(tokens_per_second):.2f}",
+    st.dataframe(
+        _table_rows(payload),
+        use_container_width=True,
+        hide_index=True,
     )
+
+    with st.expander("Entity details and source traceability"):
+        for row in rows:
+            with st.container(border=True):
+                left, right = st.columns([1.3, 1])
+                with left:
+                    _render_cell("Name", row["entity_name"])
+                    _render_cell("Description", row["description"])
+                with right:
+                    _render_cell("Type", row["entity_type"])
+                    attributes = row.get("attributes", {})
+                    if attributes:
+                        st.markdown("**Attributes**")
+                        for key, value in attributes.items():
+                            _render_cell(key, value)
+                    st.write(f"Confidence: {float(row.get('confidence', 0.0)):.2f}")
 
 
 def _render_runtime(payload: dict[str, Any]) -> None:
@@ -261,12 +267,44 @@ def _render_runtime(payload: dict[str, Any]) -> None:
         return
     st.subheader("Runtime")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("LLM Provider", str(runtime.get("llm_provider", "")))
-    col2.metric("LLM Model", str(runtime.get("llm_model", "")))
-    col3.metric("Search Provider", str(runtime.get("search_provider", "")))
+    col1.metric("LLM provider", str(runtime.get("llm_provider", "")))
+    col2.metric("LLM model", str(runtime.get("llm_model", "")))
+    col3.metric("Search provider", str(runtime.get("search_provider", "")))
     col4.metric(
-        "Search Results",
+        "Search results",
         f"{runtime.get('actual_search_results', 0)}/{runtime.get('requested_search_results', 0)}",
+    )
+
+
+def _render_metrics(payload: dict[str, Any]) -> None:
+    metrics = payload.get("metrics")
+    if not metrics:
+        return
+    st.subheader("Summary Statistics")
+
+    row1 = st.columns(3)
+    row1[0].metric("Total latency", f"{metrics.get('total_latency_ms', 0) / 1000:.2f} s")
+    row1[1].metric("Search latency", f"{metrics.get('search_latency_ms', 0) / 1000:.2f} s")
+    row1[2].metric("Fetch latency", f"{metrics.get('fetch_latency_ms', 0) / 1000:.2f} s")
+
+    row2 = st.columns(3)
+    row2[0].metric("LLM latency", f"{metrics.get('extract_latency_ms', 0) / 1000:.2f} s")
+    row2[1].metric("Fetch throughput", f"{metrics.get('pages_per_second', 0):.2f} pages/s")
+    row2[2].metric("Entity throughput", f"{metrics.get('entities_per_second', 0):.2f} entities/s")
+
+    row3 = st.columns(3)
+    row3[0].metric("Fetched documents", str(metrics.get("fetched_documents_count", 0)))
+    row3[1].metric("Final entities", str(metrics.get("final_entities_count", 0)))
+    row3[2].metric("Search results", str(metrics.get("search_results_count", 0)))
+
+    row4 = st.columns(4)
+    row4[0].metric("LLM prompt tokens", str(metrics.get("llm_prompt_tokens", 0)))
+    row4[1].metric("LLM output tokens", str(metrics.get("llm_output_tokens", 0)))
+    row4[2].metric("LLM total tokens", str(metrics.get("llm_total_tokens", 0)))
+    tokens_per_second = metrics.get("llm_tokens_per_second")
+    row4[3].metric(
+        "LLM tokens / sec",
+        "N/A" if tokens_per_second in (None, "") else f"{float(tokens_per_second):.2f}",
     )
 
 
@@ -290,7 +328,7 @@ def main() -> None:
     )
 
     st.title("Customizable Agentic Search")
-    st.write("Customizable Agentic Search with configurable providers, model selection, and source-backed entity extraction.")
+    st.write("Customizable Agent Search with configurable providers, model selection, and source-backed entity extraction.")
 
     settings, debug_mode, log_file = _build_runtime_settings()
 
@@ -309,10 +347,10 @@ def main() -> None:
                     debug=debug_mode,
                     log_path=log_file.strip() or None,
                 ).to_dict()
+            _render_results(payload)
             _render_runtime(payload)
             _render_metrics(payload)
-            _render_results(payload)
-            if payload.get("warnings"):
+            if debug_mode and payload.get("warnings"):
                 st.warning("\n".join(payload["warnings"]))
             if payload.get("log_file"):
                 st.caption(f"Run logged to {payload['log_file']}")

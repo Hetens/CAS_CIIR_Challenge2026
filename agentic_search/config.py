@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DOTENV_PATH = _REPO_ROOT / ".env"
 
 
 @dataclass(frozen=True)
@@ -22,6 +28,9 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # Streamlit and other runners do not load `.env` automatically; read repo-root `.env` here.
+    load_dotenv(_DOTENV_PATH, override=False)
+
     return Settings(
         llm_provider=os.getenv("LLM_PROVIDER", "auto").strip().lower(),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),

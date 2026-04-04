@@ -355,6 +355,6 @@ def build_extractor(settings: Settings) -> Extractor:
         return OllamaExtractor(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
-            timeout_seconds=max(settings.request_timeout_seconds, 120),
+            timeout_seconds=max(settings.request_timeout_seconds, 300),
         )
     raise ValueError(f"Unsupported LLM_PROVIDER: {settings.llm_provider}")
