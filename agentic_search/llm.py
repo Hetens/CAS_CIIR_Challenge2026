@@ -100,8 +100,10 @@ class BaseExtractor(ABC):
         self.timeout_seconds = timeout_seconds
         self.last_raw_output_text = ""
         self.last_used_model = ""
+        self.last_usage: dict[str, Any] = {}
 
     def extract(self, query: str, documents: list[WebDocument]) -> list[EntityRecord]:
+        self.last_usage = {}
         raw_text = self._generate_json_text(query=query, documents=documents)
         self.last_raw_output_text = raw_text
         parsed = ExtractionPayload.model_validate_json(raw_text)
@@ -188,6 +190,12 @@ class OpenAIExtractor(BaseExtractor):
             payload=payload,
             headers={"Authorization": f"Bearer {self.api_key}"},
         )
+        usage = raw.get("usage", {})
+        self.last_usage = {
+            "prompt_tokens": int(usage.get("input_tokens", 0) or 0),
+            "output_tokens": int(usage.get("output_tokens", 0) or 0),
+            "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        }
         return self._extract_openai_output_text(raw)
 
     @staticmethod
@@ -236,6 +244,12 @@ class GeminiExtractor(BaseExtractor):
             payload=payload,
             headers={},
         )
+        usage = raw.get("usageMetadata", {})
+        self.last_usage = {
+            "prompt_tokens": int(usage.get("promptTokenCount", 0) or 0),
+            "output_tokens": int(usage.get("candidatesTokenCount", 0) or 0),
+            "total_tokens": int(usage.get("totalTokenCount", 0) or 0),
+        }
         candidates = raw.get("candidates", [])
         for candidate in candidates:
             content = candidate.get("content", {})
@@ -267,6 +281,19 @@ class OllamaExtractor(BaseExtractor):
             payload=payload,
             headers={},
         )
+        prompt_tokens = int(raw.get("prompt_eval_count", 0) or 0)
+        output_tokens = int(raw.get("eval_count", 0) or 0)
+        total_tokens = prompt_tokens + output_tokens
+        eval_duration_ns = raw.get("eval_duration", 0) or 0
+        tokens_per_second = None
+        if eval_duration_ns and output_tokens:
+            tokens_per_second = round(output_tokens / (eval_duration_ns / 1_000_000_000), 2)
+        self.last_usage = {
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "tokens_per_second": tokens_per_second,
+        }
         response_text = raw.get("response")
         if not response_text:
             raise ValueError("Ollama response did not include generated JSON")

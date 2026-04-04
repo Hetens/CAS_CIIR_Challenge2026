@@ -17,6 +17,16 @@ class FakeSearchProvider:
 
 
 class FakeExtractor:
+    def __init__(self):
+        self.last_raw_output_text = '{"entities": []}'
+        self.last_used_model = 'gemini-test'
+        self.last_usage = {
+            'prompt_tokens': 120,
+            'output_tokens': 30,
+            'total_tokens': 150,
+            'tokens_per_second': 15.5,
+        }
+
     def extract(self, query, documents):
         self.seen_query = query
         self.seen_documents = documents
@@ -160,6 +170,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(response.debug.steps[1]["name"], "web_search_results")
         self.assertEqual(response.debug.steps[2]["name"], "llm_structuring_output")
         self.assertEqual(response.debug.steps[3]["name"], "final_summary")
+        self.assertEqual(response.runtime.llm_model, 'gemini-test')
+        self.assertEqual(response.metrics.llm_prompt_tokens, 120)
+        self.assertEqual(response.metrics.llm_output_tokens, 30)
+        self.assertEqual(response.metrics.llm_total_tokens, 150)
+        self.assertEqual(response.metrics.llm_tokens_per_second, 15.5)
 
     def test_build_extractor_prefers_gemini_in_auto_mode(self):
         settings = Settings(

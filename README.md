@@ -1,4 +1,4 @@
-# CAS_CIIR_Challenge2026
+# Customizable Agent Search 
 
 Customizable Agent Search challenge submission for 2026.
 

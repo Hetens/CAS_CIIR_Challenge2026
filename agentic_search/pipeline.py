@@ -96,6 +96,16 @@ class AgenticSearchPipeline:
             llm_raw_output = ""
         extract_latency_ms = (time.perf_counter() - extract_start) * 1000
         llm_model = self._resolved_llm_model_label()
+        llm_usage = getattr(self.extractor, "last_usage", {}) or {}
+        llm_prompt_tokens = int(llm_usage.get("prompt_tokens", 0) or 0)
+        llm_output_tokens = int(llm_usage.get("output_tokens", 0) or 0)
+        llm_total_tokens = int(llm_usage.get("total_tokens", llm_prompt_tokens + llm_output_tokens) or 0)
+        llm_tokens_per_second = llm_usage.get("tokens_per_second")
+        if llm_tokens_per_second is None and llm_output_tokens:
+            llm_tokens_per_second = round(
+                llm_output_tokens / max(extract_latency_ms / 1000, 0.001),
+                2,
+            )
         LOGGER.info(
             "Extraction completed with llm_provider=%s llm_model=%s extracted_entities=%s latency_ms=%.2f",
             self.settings.llm_provider,
@@ -129,9 +139,13 @@ class AgenticSearchPipeline:
                 len(deduped) / max(total_latency_ms / 1000, 0.001),
                 2,
             ),
+            llm_prompt_tokens=llm_prompt_tokens,
+            llm_output_tokens=llm_output_tokens,
+            llm_total_tokens=llm_total_tokens,
+            llm_tokens_per_second=llm_tokens_per_second,
         )
         LOGGER.info(
-            "Final summary llm_provider=%s llm_model=%s search_provider=%s actual_search_results=%s final_entities=%s total_latency_ms=%.2f pages_per_second=%.2f entities_per_second=%.2f",
+            "Final summary llm_provider=%s llm_model=%s search_provider=%s actual_search_results=%s final_entities=%s total_latency_ms=%.2f pages_per_second=%.2f entities_per_second=%.2f llm_tokens_per_second=%s",
             self.settings.llm_provider,
             llm_model,
             self.settings.search_provider,
@@ -140,6 +154,7 @@ class AgenticSearchPipeline:
             total_latency_ms,
             metrics.pages_per_second,
             metrics.entities_per_second,
+            metrics.llm_tokens_per_second,
         )
         if debug:
             LOGGER.debug("Step 3 final_summary %s", metrics)
@@ -178,6 +193,10 @@ class AgenticSearchPipeline:
                     "raw_output_text": llm_raw_output,
                     "structured_entities": [item.to_dict() for item in extracted],
                     "latency_ms": round(extract_latency_ms, 2),
+                    "prompt_tokens": llm_prompt_tokens,
+                    "output_tokens": llm_output_tokens,
+                    "total_tokens": llm_total_tokens,
+                    "tokens_per_second": llm_tokens_per_second,
                     "used_fallback": llm_raw_output == "",
                 },
                 {
@@ -193,6 +212,10 @@ class AgenticSearchPipeline:
                         "total_latency_ms": round(total_latency_ms, 2),
                         "pages_per_second": metrics.pages_per_second,
                         "entities_per_second": metrics.entities_per_second,
+                        "llm_prompt_tokens": llm_prompt_tokens,
+                        "llm_output_tokens": llm_output_tokens,
+                        "llm_total_tokens": llm_total_tokens,
+                        "llm_tokens_per_second": llm_tokens_per_second,
                         "search_results_count": len(results),
                         "fetched_documents_count": len(documents),
                         "final_entities_count": len(deduped),

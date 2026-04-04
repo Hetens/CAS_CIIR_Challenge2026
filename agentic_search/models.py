@@ -57,6 +57,10 @@ class RunMetrics:
     fetch_failures_count: int = 0
     pages_per_second: float = 0.0
     entities_per_second: float = 0.0
+    llm_prompt_tokens: int = 0
+    llm_output_tokens: int = 0
+    llm_total_tokens: int = 0
+    llm_tokens_per_second: float | None = None
 
 
 @dataclass
