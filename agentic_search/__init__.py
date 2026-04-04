@@ -1,0 +1,1 @@
+"""Agentic search challenge implementation."""
