@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, Protocol
 from urllib.parse import quote_plus
 from urllib.error import HTTPError
@@ -101,6 +102,7 @@ class BaseExtractor(ABC):
         self.last_raw_output_text = ""
         self.last_used_model = ""
         self.last_usage: dict[str, Any] = {}
+        self.on_llm_chunk: Callable[[str], None] | None = None
 
     def extract(self, query: str, documents: list[WebDocument]) -> list[EntityRecord]:
         self.last_usage = {}
@@ -270,17 +272,27 @@ class OllamaExtractor(BaseExtractor):
         model = self.model or self._discover_model()
         self.last_used_model = model
         prepared_documents = self._prepare_documents(documents)
+        use_stream = self.on_llm_chunk is not None
         payload = {
             "model": model,
             "prompt": self._build_prompt(query=query, documents=prepared_documents),
-            "stream": False,
+            "stream": use_stream,
             "format": "json",
         }
+        if use_stream:
+            return self._stream_generate(payload)
         raw = self._post_json(
             url=f"{self.base_url}/api/generate",
             payload=payload,
             headers={},
         )
+        self._extract_ollama_usage(raw)
+        response_text = raw.get("response")
+        if not response_text:
+            raise ValueError("Ollama response did not include generated JSON")
+        return response_text
+
+    def _extract_ollama_usage(self, raw: dict) -> None:
         prompt_tokens = int(raw.get("prompt_eval_count", 0) or 0)
         output_tokens = int(raw.get("eval_count", 0) or 0)
         total_tokens = prompt_tokens + output_tokens
@@ -294,9 +306,44 @@ class OllamaExtractor(BaseExtractor):
             "total_tokens": total_tokens,
             "tokens_per_second": tokens_per_second,
         }
-        response_text = raw.get("response")
+
+    def _stream_generate(self, payload: dict) -> str:
+        url = f"{self.base_url}/api/generate"
+        request = Request(
+            url=url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        accumulated: list[str] = []
+        final_chunk: dict = {}
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    token = chunk.get("response", "")
+                    if token:
+                        accumulated.append(token)
+                        if self.on_llm_chunk:
+                            self.on_llm_chunk("".join(accumulated))
+                    if chunk.get("done"):
+                        final_chunk = chunk
+                        break
+        except socket.timeout as exc:
+            raise TimeoutError(
+                f"Timed out after {self.timeout_seconds}s streaming from {url}"
+            ) from exc
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            detail = body.strip() or exc.reason
+            raise ValueError(f"HTTP {exc.code} streaming from {url}: {detail}") from exc
+        self._extract_ollama_usage(final_chunk)
+        response_text = "".join(accumulated)
         if not response_text:
-            raise ValueError("Ollama response did not include generated JSON")
+            raise ValueError("Ollama streaming did not produce any output")
         return response_text
 
     def _discover_model(self) -> str:

@@ -1,3 +1,0 @@
--Make boxes for curstomization in the streamlit so the config changes
--push to github
--do a comparative study of which methods run at what speeds

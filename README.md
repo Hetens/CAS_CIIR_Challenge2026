@@ -147,6 +147,38 @@ Each cell is source-traceable:
 - Deduplication happens after extraction so evidence from multiple pages can merge into one entity row.
 - Every run is logged to JSONL, which makes latency and throughput easy to audit across repeated searches.
 
+## Benchmark Comparison
+
+Performance comparison across providers and models, collected from real search runs logged in `logs/`.
+
+### Gemini vs Ollama (gemma4:e2b) Summary
+
+| Metric | Gemini (gemini-3-flash-preview) | Ollama (gemma4:e2b) |
+|---|---|---|
+| Avg total latency | ~25 s | ~155 s |
+| Avg LLM latency | ~20 s | ~152 s |
+| Avg tokens/sec | 142.86 | ~9.8 |
+| Structured output quality | Correct schema on every run | Frequent fallback to metadata shaping |
+| Token usage | ~26K tokens per run | ~2.5K tokens per run (smaller context window) |
+
+### Run-by-Run Detail
+
+| Query | LLM | Model | Search Results | Entities | Total (s) | LLM (s) | Tokens | Tok/s | Fallback |
+|---|---|---|---|---|---|---|---|---|---|
+| Database configs for healthcare | gemini | gemini-3-flash-preview | 6 | 4 | 24.82 | 19.95 | 26,206 | 142.86 | No |
+| AI startups in Healthcare | auto (ollama) | gemma4:e2b | 5 | 5 | 283.50 | 277.76 | 3,724 | 9.24 | No |
+| Database systems in healthcare | ollama | gemma4:e2b | 3 | 1 | 114.49 | 112.54 | 2,405 | 11.10 | No |
+| Database systems in healthcare | ollama | gemma4:e2b | 3 | 3 | 63.91 | 61.55 | 1,970 | 7.91 | Yes |
+| Database systems in healthcare | ollama | gemma4:e2b | 4 | 4 | 151.43 | 147.76 | 2,851 | 10.22 | Yes |
+| Database systems in healthcare | ollama | gemma4:e2b | 3 | 3 | 162.80 | 160.30 | 2,977 | 10.42 | Yes |
+
+### Key Observations
+
+- **Gemini is ~6x faster** end-to-end and ~15x faster in token throughput compared to local Ollama with gemma4:e2b.
+- **Ollama gemma4:e2b frequently falls back** to metadata-based entity shaping because its JSON output does not always conform to the required nested schema. 3 out of 4 dedicated Ollama runs used the fallback path.
+- **Local models process far fewer tokens** (~2-4K vs ~26K) because the pipeline truncates documents to stay within the smaller context window, which reduces extraction quality.
+- **Search and fetch latency is consistent** across providers (~1-5 s), so the LLM extraction step dominates total runtime, especially for local models.
+
 ## Known limitations
 
 - The current scraper does not execute JavaScript.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as _html
 import json
 from dataclasses import replace
 from typing import Any
@@ -86,7 +87,6 @@ def _build_runtime_settings() -> tuple[Settings, bool, str]:
 
     with st.sidebar:
         st.subheader("Runtime Config")
-        st.caption("Use `duckduckgo` when you want to preserve paid search quota.")
 
         llm_provider = st.selectbox(
             "LLM provider",
@@ -106,9 +106,9 @@ def _build_runtime_settings() -> tuple[Settings, bool, str]:
         )
         request_timeout_seconds = st.slider(
             "Request timeout (seconds)",
-            min_value=15,
+            min_value=30,
             max_value=180,
-            value=max(15, min(base.request_timeout_seconds, 180)),
+            value=max(30, min(base.request_timeout_seconds, 180)),
         )
         max_page_chars = st.slider(
             "Max page characters",
@@ -195,10 +195,56 @@ def _summarize_attributes(attributes: dict[str, dict[str, Any]]) -> str:
         return ""
     parts = []
     for key, value in attributes.items():
-        text = str(value.get("value", "")).strip()
+        text = str(value.get("value") or "").strip()
         if text:
             parts.append(f"{key}: {text}")
     return " | ".join(parts)
+
+
+_TH = "text-align:left;padding:8px 12px;border-bottom:2px solid rgba(128,128,128,0.3);white-space:nowrap;"
+_TD = "padding:8px 12px;border-bottom:1px solid rgba(128,128,128,0.15);word-wrap:break-word;overflow-wrap:break-word;white-space:normal;"
+
+
+def _html_table(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return ""
+    headers = list(rows[0].keys())
+    p = [f'<table style="width:100%;border-collapse:collapse;font-size:0.875rem;"><thead><tr>']
+    for h in headers:
+        p.append(f'<th style="{_TH}">{_html.escape(h)}</th>')
+    p.append("</tr></thead><tbody>")
+    for row in rows:
+        p.append("<tr>")
+        for h in headers:
+            p.append(f'<td style="{_TD}">{_html.escape(str(row.get(h, "")))}</td>')
+        p.append("</tr>")
+    p.append("</tbody></table>")
+    return "".join(p)
+
+
+def _metrics_html_table(rows: list[tuple[str, str, str]]) -> str:
+    """Each row is (metric_name, value, tooltip_description)."""
+    th = "text-align:left;padding:6px 10px;border-bottom:2px solid rgba(128,128,128,0.3);"
+    td = "padding:6px 10px;border-bottom:1px solid rgba(128,128,128,0.15);"
+    p = [
+        '<table style="width:100%;border-collapse:collapse;font-size:0.875rem;">',
+        f'<thead><tr><th style="{th}">Metric</th><th style="{th}text-align:right;">Value</th></tr></thead>',
+        "<tbody>",
+    ]
+    for name, value, tooltip in rows:
+        tip = f' title="{_html.escape(tooltip)}"' if tooltip else ""
+        icon = (' <span style="display:inline-flex;align-items:center;justify-content:center;'
+                'width:1em;height:1em;border-radius:50%;border:1px solid currentColor;'
+                'font-size:0.65em;opacity:0.45;cursor:help;vertical-align:middle;'
+                'margin-left:4px;">?</span>') if tooltip else ""
+        p.append(
+            f"<tr>"
+            f'<td style="{td}"{tip}>{_html.escape(name)}{icon}</td>'
+            f'<td style="{td}text-align:right;font-family:monospace;">{_html.escape(value)}</td>'
+            f"</tr>"
+        )
+    p.append("</tbody></table>")
+    return "".join(p)
 
 
 def _table_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -218,12 +264,12 @@ def _table_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _render_cell(label: str, cell: dict[str, Any]) -> None:
-    st.markdown(f"**{label}:** {cell.get('value', '')}")
-    evidence = str(cell.get("evidence", "")).strip()
+    st.markdown(f"**{label}:** {cell.get('value') or ''}")
+    evidence = str(cell.get("evidence") or "").strip()
     if evidence:
         st.caption(evidence)
-    source_url = str(cell.get("source_url", "")).strip()
-    source_title = str(cell.get("source_title", "")).strip() or source_url
+    source_url = str(cell.get("source_url") or "").strip()
+    source_title = str(cell.get("source_title") or "").strip() or source_url
     if source_url:
         st.markdown(f"[Source: {source_title}]({source_url})")
 
@@ -238,11 +284,7 @@ def _render_results(payload: dict[str, Any]) -> None:
     st.caption(
         f"{len(rows)} entities found from {len(payload.get('searched_urls', []))} pages."
     )
-    st.dataframe(
-        _table_rows(payload),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.markdown(_html_table(_table_rows(payload)), unsafe_allow_html=True)
 
     with st.expander("Entity details and source traceability"):
         for row in rows:
@@ -266,13 +308,16 @@ def _render_runtime(payload: dict[str, Any]) -> None:
     if not runtime:
         return
     st.subheader("Runtime")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("LLM provider", str(runtime.get("llm_provider", "")))
-    col2.metric("LLM model", str(runtime.get("llm_model", "")))
-    col3.metric("Search provider", str(runtime.get("search_provider", "")))
-    col4.metric(
-        "Search results",
-        f"{runtime.get('actual_search_results', 0)}/{runtime.get('requested_search_results', 0)}",
+    st.markdown(
+        _html_table([
+            {
+                "LLM Provider": str(runtime.get("llm_provider") or ""),
+                "LLM Model": str(runtime.get("llm_model") or ""),
+                "Search Provider": str(runtime.get("search_provider") or ""),
+                "Search Results": f"{runtime.get('actual_search_results', 0)}/{runtime.get('requested_search_results', 0)}",
+            }
+        ]),
+        unsafe_allow_html=True,
     )
 
 
@@ -282,30 +327,37 @@ def _render_metrics(payload: dict[str, Any]) -> None:
         return
     st.subheader("Summary Statistics")
 
-    row1 = st.columns(3)
-    row1[0].metric("Total latency", f"{metrics.get('total_latency_ms', 0) / 1000:.2f} s")
-    row1[1].metric("Search latency", f"{metrics.get('search_latency_ms', 0) / 1000:.2f} s")
-    row1[2].metric("Fetch latency", f"{metrics.get('fetch_latency_ms', 0) / 1000:.2f} s")
-
-    row2 = st.columns(3)
-    row2[0].metric("LLM latency", f"{metrics.get('extract_latency_ms', 0) / 1000:.2f} s")
-    row2[1].metric("Fetch throughput", f"{metrics.get('pages_per_second', 0):.2f} pages/s")
-    row2[2].metric("Entity throughput", f"{metrics.get('entities_per_second', 0):.2f} entities/s")
-
-    row3 = st.columns(3)
-    row3[0].metric("Fetched documents", str(metrics.get("fetched_documents_count", 0)))
-    row3[1].metric("Final entities", str(metrics.get("final_entities_count", 0)))
-    row3[2].metric("Search results", str(metrics.get("search_results_count", 0)))
-
-    row4 = st.columns(4)
-    row4[0].metric("LLM prompt tokens", str(metrics.get("llm_prompt_tokens", 0)))
-    row4[1].metric("LLM output tokens", str(metrics.get("llm_output_tokens", 0)))
-    row4[2].metric("LLM total tokens", str(metrics.get("llm_total_tokens", 0)))
     tokens_per_second = metrics.get("llm_tokens_per_second")
-    row4[3].metric(
-        "LLM tokens / sec",
-        "N/A" if tokens_per_second in (None, "") else f"{float(tokens_per_second):.2f}",
-    )
+    tps_display = "N/A" if tokens_per_second in (None, "") else f"{float(tokens_per_second):.2f}"
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.caption("Latency & Throughput")
+        st.markdown(
+            _metrics_html_table([
+                ("Total latency", f"{metrics.get('total_latency_ms', 0) / 1000:.2f} s", "End-to-end time from query submission to structured output"),
+                ("Search latency", f"{metrics.get('search_latency_ms', 0) / 1000:.2f} s", "Time spent querying the search provider API"),
+                ("Fetch latency", f"{metrics.get('fetch_latency_ms', 0) / 1000:.2f} s", "Time spent downloading and parsing web pages"),
+                ("LLM latency", f"{metrics.get('extract_latency_ms', 0) / 1000:.2f} s", "Time the LLM spent generating the entity extraction JSON"),
+                ("Fetch throughput", f"{metrics.get('pages_per_second', 0):.2f} pages/s", "Web pages fetched and parsed per second"),
+                ("Entity throughput", f"{metrics.get('entities_per_second', 0):.2f} entities/s", "Final entities produced per second of total runtime"),
+            ]),
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.caption("Counts & Tokens")
+        st.markdown(
+            _metrics_html_table([
+                ("Search results", str(metrics.get("search_results_count", 0)), "Number of results returned by the search provider"),
+                ("Fetched documents", str(metrics.get("fetched_documents_count", 0)), "Web pages successfully downloaded and parsed"),
+                ("Final entities", str(metrics.get("final_entities_count", 0)), "Entities remaining after deduplication and merging"),
+                ("Prompt tokens", str(metrics.get("llm_prompt_tokens", 0)), "Tokens sent to the LLM in the extraction prompt"),
+                ("Output tokens", str(metrics.get("llm_output_tokens", 0)), "Tokens generated by the LLM"),
+                ("Total tokens", str(metrics.get("llm_total_tokens", 0)), "Combined prompt and output token count"),
+                ("Tokens/sec", tps_display, "LLM generation speed in output tokens per second"),
+            ]),
+            unsafe_allow_html=True,
+        )
 
 
 def _render_debug_steps(payload: dict[str, Any]) -> None:
@@ -333,7 +385,7 @@ def main() -> None:
     settings, debug_mode, log_file = _build_runtime_settings()
 
     query = st.text_input("Topic query", placeholder="AI startups in healthcare")
-    search_clicked = st.button("Search", type="primary", use_container_width=True)
+    search_clicked = st.button("Search", type="primary", width="stretch")
 
     if search_clicked:
         if not query.strip():
@@ -341,12 +393,28 @@ def main() -> None:
             return
         try:
             pipeline = AgenticSearchPipeline(settings)
-            with st.spinner("Searching, scraping, and extracting entities..."):
-                payload = pipeline.run(
-                    query.strip(),
-                    debug=debug_mode,
-                    log_path=log_file.strip() or None,
-                ).to_dict()
+
+            status = st.status("Searching, scraping, and extracting entities...", expanded=True)
+            llm_output_area = [None]
+
+            def _on_llm_chunk(text: str) -> None:
+                if llm_output_area[0] is None:
+                    status.write("**LLM generating output...**")
+                    llm_output_area[0] = status.empty()
+                preview = text if len(text) <= 3000 else f"...{text[-3000:]}"
+                llm_output_area[0].code(preview, language="json")
+
+            if hasattr(pipeline.extractor, "on_llm_chunk"):
+                pipeline.extractor.on_llm_chunk = _on_llm_chunk
+
+            payload = pipeline.run(
+                query.strip(),
+                debug=debug_mode,
+                log_path=log_file.strip() or None,
+            ).to_dict()
+
+            status.update(label="Search complete!", state="complete", expanded=False)
+
             _render_results(payload)
             _render_runtime(payload)
             _render_metrics(payload)
