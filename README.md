@@ -4,9 +4,7 @@ CIIR Agentic Search Challenge submission -- an end-to-end system that takes a to
 
 ## Demo
 
-<a href="https://drive.google.com/file/d/1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4/view?usp=drive_link">
-  <img src="https://drive.google.com/thumbnail?id=1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4&sz=w1280" alt="Demo Video" width="700">
-</a>
+https://github.com/Hetens/CAS_CIIR_Challenge2026/raw/main/assets/CIIR_Challenge.mp4
 
 ## Approach
 
