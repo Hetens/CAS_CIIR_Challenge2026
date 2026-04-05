@@ -2,6 +2,8 @@
 
 Customizable Agent Search challenge submission for 2026.
 
+[Watch the demo video](https://drive.google.com/file/d/1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4/view?usp=drive_link)
+
 An end-to-end Python system that:
 
 - accepts a topic query
