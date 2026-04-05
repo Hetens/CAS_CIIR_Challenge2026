@@ -1,195 +1,127 @@
-# Customizable Agent Search 
+# Customizable Agentic Search
 
-Customizable Agent Search challenge submission for 2026.
+CIIR Agentic Search Challenge submission -- an end-to-end system that takes a topic query, searches the web, scrapes result pages, uses an LLM to extract structured entities, and returns a source-traceable table.
 
-[Watch the demo video](https://drive.google.com/file/d/1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4/view?usp=drive_link)
+## Demo
 
-An end-to-end Python system that:
+<a href="https://drive.google.com/file/d/1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4/view?usp=drive_link">
+  <img src="https://drive.google.com/thumbnail?id=1Imm_cUkHkzhKgCckNPDZstZMqYSynEd4&sz=w1280" alt="Demo Video" width="700">
+</a>
 
-- accepts a topic query
-- searches the web with a pluggable provider
-- scrapes result pages
-- uses an LLM to extract structured entities
-- returns a traceable table in JSON or a Streamlit UI
+## Approach
 
-This version now supports:
+The pipeline runs in four stages:
 
-- `Gemini` via API key
-- `Ollama` via local HTTP
-- `OpenAI` via API key
-- `DuckDuckGo` search with no search API key
+1. **Search** -- query a pluggable provider (DuckDuckGo, Brave, SerpAPI) and collect result URLs.
+2. **Fetch** -- download each page and extract clean text with a stdlib-only scraper.
+3. **Extract** -- send documents to an LLM (Gemini, OpenAI, or local Ollama) with a structured JSON schema prompt. Output is validated with Pydantic; if the LLM returns malformed JSON, a fallback shaper builds entities from page metadata.
+4. **Deduplicate** -- merge entities by name, keeping the higher-confidence version and combining attributes and sources.
 
-## Features
+Every cell value carries `source_url`, `source_title`, and `evidence` so each fact is traceable to its origin page.
 
-- Provider abstraction for Brave Search and SerpAPI
-- HTML fetching and lightweight text extraction
-- LLM-driven entity extraction with source-backed fields
-- Entity deduplication and confidence scoring
-- CLI output and a Streamlit frontend
-- Tests with mocked search, fetch, and LLM layers
+## Setup
 
-## Quick start
-
-1. Create a virtual environment.
-2. Set the required environment variables.
-3. Run either the CLI or the Streamlit frontend.
+```bash
+pip install -r requirements.txt
+```
 
 ### Environment variables
 
-Required:
+At least one LLM provider is required:
 
-- one LLM path:
-- `GEMINI_API_KEY`
-- or `OLLAMA_MODEL` with a running Ollama server
-- or `OPENAI_API_KEY`
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Gemini API key |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `OLLAMA_MODEL` | Ollama model name (requires a running Ollama server) |
 
-One search provider is required:
+Search defaults to DuckDuckGo (no key needed). For paid providers set `BRAVE_API_KEY` or `SERPAPI_API_KEY`.
 
-- none if you use `SEARCH_PROVIDER=duckduckgo`
-- `BRAVE_API_KEY`
-- or `SERPAPI_API_KEY`
+Optional tuning:
 
-Optional:
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PROVIDER` | `auto` | `auto`, `gemini`, `ollama`, or `openai` |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Gemini model name |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | OpenAI model name |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
+| `SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo`, `brave`, or `serpapi` |
+| `SEARCH_RESULT_COUNT` | `5` | Results to request from search |
+| `MAX_PAGE_CHARS` | `12000` | Max characters per fetched page |
+| `REQUEST_TIMEOUT_SECONDS` | `15` | HTTP timeout |
 
-- `LLM_PROVIDER`: `auto`, `gemini`, `ollama`, or `openai`
-- `OPENAI_MODEL`: defaults to `gpt-4.1-mini`
-- `GEMINI_MODEL`: defaults to `gemini-3.0-flash-preview`
-- `OLLAMA_BASE_URL`: defaults to `http://127.0.0.1:11434`
-- `OLLAMA_MODEL`: defaults to `gemma4:e2b`
-- `SEARCH_PROVIDER`: `duckduckgo`, `brave`, or `serpapi`
-- `SEARCH_RESULT_COUNT`: defaults to `5`
-- `MAX_PAGE_CHARS`: defaults to `12000`
-- `REQUEST_TIMEOUT_SECONDS`: defaults to `15`
-
-## Local-first examples
-
-### Gemini
-
-```powershell
-$env:LLM_PROVIDER="gemini"
-$env:GEMINI_API_KEY="your-key"
-$env:SEARCH_PROVIDER="duckduckgo"
-py -3 app.py cli "open source database tools"
-```
-
-### Ollama
-
-Set `OLLAMA_MODEL` to whichever model you already have locally. If you want to try a Gemma-family model, use the exact name shown by your Ollama install.
-
-```powershell
-$env:LLM_PROVIDER="ollama"
-$env:OLLAMA_BASE_URL="http://127.0.0.1:11434"
-$env:OLLAMA_MODEL="your-local-model-name"
-$env:SEARCH_PROVIDER="duckduckgo"
-py -3 app.py cli "top pizza places in Brooklyn"
-```
-
-## CLI usage
+### Run
 
 ```bash
+# Streamlit UI
+py -3 app.py streamlit
+
+# CLI
 py -3 app.py cli "AI startups in healthcare"
-```
 
-### CLI debug mode
-
-```bash
+# CLI with debug logging
 py -3 app.py cli "AI startups in healthcare" --debug --log-file logs/search_runs.jsonl
 ```
 
-This includes:
-
-- timing breakdown for search, fetch, extraction, and total runtime
-- throughput metrics like pages per second and entities per second
-- searched result metadata and fetched document summaries
-- a persistent JSONL log file for each run
-
-## Streamlit UI
+### Tests
 
 ```bash
-py -3 app.py streamlit
+python -m unittest discover -s tests -v
 ```
 
-Then open [http://127.0.0.1:8501](http://127.0.0.1:8501).
+## Design Decisions
 
-The Streamlit sidebar also supports:
+| Decision | Rationale |
+|---|---|
+| **Modular pipeline** (`search`, `scrape`, `llm`, `pipeline`) | Providers and strategies can be swapped independently without touching other layers. |
+| **Pydantic validation on LLM output** | Catches malformed JSON from weaker models and keeps the downstream schema stable. |
+| **Per-cell provenance** (`source_url`, `evidence`) | Every value is traceable to a specific page and quote, not just at the row level. |
+| **Fallback entity shaping** | When the LLM returns invalid JSON, entities are built from page metadata so the pipeline never returns empty. |
+| **Stdlib-only scraper** | Keeps dependencies light and setup portable; trades off JavaScript rendering. |
+| **JSONL run logging** | Every run is appended to a log file for latency/throughput auditing across experiments. |
+| **Streaming output for local models** | Ollama responses stream token-by-token into the Streamlit UI so the user sees progress during long extractions. |
+| **DuckDuckGo as default search** | No API key required, which means zero-config setup for evaluation. |
 
-- `Debug mode`
-- custom log file path
-- in-app metrics and raw debug payload viewing
+## Beyond the Basics
 
-## Output schema
-
-Each entity row contains:
-
-- `entity_name`
-- `entity_type`
-- `description`
-- `attributes`
-- `confidence`
-- `sources`
-
-Each cell is source-traceable:
-
-```json
-{
-  "value": "Acme Health",
-  "source_url": "https://example.com/company",
-  "source_title": "Acme Health",
-  "evidence": "Acme Health builds AI tools for clinical teams."
-}
-```
-
-## Design choices
-
-- The pipeline is split into `search`, `scrape`, `llm`, and `pipeline` modules so providers and extraction strategies can be swapped independently.
-- The extractor output is validated with `pydantic`, which makes provider output safer and keeps the downstream schema stable.
-- The frontend is entirely `Streamlit`, which gives a faster local demo loop and easier inspectability for raw JSON and warnings.
-- The scraper is standard-library only for portability; that keeps setup light, though it is less effective on JavaScript-heavy pages.
-- The extraction schema forces provenance on every field rather than attaching sources only at the row level.
-- Deduplication happens after extraction so evidence from multiple pages can merge into one entity row.
-- Every run is logged to JSONL, which makes latency and throughput easy to audit across repeated searches.
+- **Three LLM providers** with automatic fallback ordering (Gemini → OpenAI → Ollama).
+- **Streaming LLM output** in the Streamlit UI for slow local models -- tokens appear as they generate.
+- **Runtime-configurable sidebar** -- switch providers, models, result counts, and timeouts without restarting.
+- **Confidence scoring and entity deduplication** -- merges duplicate entities from multiple pages, keeping the highest-confidence version.
+- **Full debug trace** -- step-by-step pipeline inspection (query preprocessing, search results, raw LLM output, structured entities, timing breakdown).
+- **Benchmark logging** -- every run is logged to JSONL with latency, token counts, and throughput metrics.
 
 ## Benchmark Comparison
 
-Performance comparison across providers and models, collected from real search runs logged in `logs/`.
-
-### Gemini vs Ollama (gemma4:e2b) Summary
+Performance comparison from real runs logged in `logs/`.
 
 | Metric | Gemini (gemini-3-flash-preview) | Ollama (gemma4:e2b) |
 |---|---|---|
 | Avg total latency | ~25 s | ~155 s |
 | Avg LLM latency | ~20 s | ~152 s |
 | Avg tokens/sec | 142.86 | ~9.8 |
-| Structured output quality | Correct schema on every run | Frequent fallback to metadata shaping |
-| Token usage | ~26K tokens per run | ~2.5K tokens per run (smaller context window) |
+| Structured output quality | Correct schema every run | Frequent fallback to metadata shaping |
+| Token usage per run | ~26K | ~2.5K (truncated context) |
 
-### Run-by-Run Detail
+<details>
+<summary>Run-by-run detail</summary>
 
-| Query | LLM | Model | Search Results | Entities | Total (s) | LLM (s) | Tokens | Tok/s | Fallback |
+| Query | LLM | Model | Results | Entities | Total (s) | LLM (s) | Tokens | Tok/s | Fallback |
 |---|---|---|---|---|---|---|---|---|---|
 | Database configs for healthcare | gemini | gemini-3-flash-preview | 6 | 4 | 24.82 | 19.95 | 26,206 | 142.86 | No |
-| AI startups in Healthcare | auto (ollama) | gemma4:e2b | 5 | 5 | 283.50 | 277.76 | 3,724 | 9.24 | No |
+| AI startups in Healthcare | auto→ollama | gemma4:e2b | 5 | 5 | 283.50 | 277.76 | 3,724 | 9.24 | No |
 | Database systems in healthcare | ollama | gemma4:e2b | 3 | 1 | 114.49 | 112.54 | 2,405 | 11.10 | No |
 | Database systems in healthcare | ollama | gemma4:e2b | 3 | 3 | 63.91 | 61.55 | 1,970 | 7.91 | Yes |
 | Database systems in healthcare | ollama | gemma4:e2b | 4 | 4 | 151.43 | 147.76 | 2,851 | 10.22 | Yes |
 | Database systems in healthcare | ollama | gemma4:e2b | 3 | 3 | 162.80 | 160.30 | 2,977 | 10.42 | Yes |
 
-### Key Observations
+</details>
 
-- **Gemini is ~6x faster** end-to-end and ~15x faster in token throughput compared to local Ollama with gemma4:e2b.
-- **Ollama gemma4:e2b frequently falls back** to metadata-based entity shaping because its JSON output does not always conform to the required nested schema. 3 out of 4 dedicated Ollama runs used the fallback path.
-- **Local models process far fewer tokens** (~2-4K vs ~26K) because the pipeline truncates documents to stay within the smaller context window, which reduces extraction quality.
-- **Search and fetch latency is consistent** across providers (~1-5 s), so the LLM extraction step dominates total runtime, especially for local models.
+**Key takeaways:** Gemini is ~6x faster end-to-end and ~15x faster in token throughput. Ollama gemma4:e2b frequently falls back to metadata shaping because its JSON doesn't conform to the nested schema. The LLM extraction step dominates total runtime; search and fetch are consistently 1-5 s.
 
-## Known limitations
+## Known Limitations
 
-- The current scraper does not execute JavaScript.
-- Search quality depends on the configured external provider.
-- The schema is intentionally generic; domain-specific prompts or schemas would improve precision for categories like restaurants, startups, or developer tools.
-- Network retries, caching, and parallel fetches are straightforward next steps but omitted to keep the submission small and readable.
-
-## Testing
-
-```bash
-python -m unittest discover -s tests -v
-```
+- The scraper does not execute JavaScript, so JS-rendered pages return minimal content.
+- Search quality depends on the external provider; DuckDuckGo occasionally returns lower-relevance results.
+- The extraction schema is intentionally generic -- domain-specific prompts would improve precision for categories like restaurants or developer tools.
+- Network retries, caching, and parallel fetches are omitted to keep the submission small and readable.
